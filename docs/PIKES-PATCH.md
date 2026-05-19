@@ -57,6 +57,25 @@ make flash-FYSETC_UCAN_fw
 
 **Pass:** `can0` works after reboot without unplugging the adapter.
 
+## GitHub Actions (automatic builds)
+
+Every push to `fix/usb-host-reboot-state` or `master` runs [`.github/workflows/pikes-fysetc-ucan.yml`](../.github/workflows/pikes-fysetc-ucan.yml).
+
+1. Open https://github.com/Pikes-GmbH/candleLight_fw/actions
+2. Select **FYSETC UCAN firmware** → latest run
+3. Download artifact `fysetc-ucan-firmware-<commit>` → contains `FYSETC_UCAN_fw.bin`
+
+**Manual build:** Actions → **FYSETC UCAN firmware** → **Run workflow**.
+
+**Versioned release:** push a tag, e.g. `fysetc-ucan-v1.0.0` — creates a GitHub Release with the `.bin` attached:
+
+```bash
+git tag fysetc-ucan-v1.0.0
+git push pikes fysetc-ucan-v1.0.0
+```
+
+The upstream repo also runs [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) on push (builds **all** board targets).
+
 ## Clone for colleagues
 
 ```bash

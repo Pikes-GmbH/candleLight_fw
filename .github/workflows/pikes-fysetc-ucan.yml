@@ -1,0 +1,77 @@
+# Build FYSETC_UCAN firmware on GitHub Actions (Pikes fork).
+# Artifacts: Actions tab → workflow run → download "fysetc-ucan-firmware-*".
+# Releases: push tag fysetc-ucan-v1.0.0 → GitHub Release with .bin attached.
+
+name: FYSETC UCAN firmware
+
+on:
+  push:
+    branches:
+      - fix/usb-host-reboot-state
+      - master
+    tags:
+      - 'fysetc-ucan-*'
+  pull_request:
+    branches:
+      - fix/usb-host-reboot-state
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi cmake ninja-build
+
+      - name: Build FYSETC_UCAN_fw
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-gcc.cmake \
+            -G Ninja
+          cmake --build build --target FYSETC_UCAN_fw
+          arm-none-eabi-size build/FYSETC_UCAN_fw
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fysetc-ucan-firmware-${{ github.sha }}
+          path: |
+            build/FYSETC_UCAN_fw.bin
+            build/FYSETC_UCAN_fw
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/fysetc-ucan-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi cmake ninja-build
+
+      - name: Build FYSETC_UCAN_fw
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-gcc.cmake \
+            -G Ninja
+          cmake --build build --target FYSETC_UCAN_fw
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/FYSETC_UCAN_fw.bin
+          generate_release_notes: true

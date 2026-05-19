@@ -20,13 +20,24 @@ Fix for [candleLight_fw issue #46](https://github.com/candle-usb/candleLight_fw/
 
 ## Build
 
+**Linux (Debian/Ubuntu):**
+
 ```bash
+sudo apt-get install gcc-arm-none-eabi cmake ninja-build
 mkdir -p build && cd build
-cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-none-eabi-gcc.cmake
-make FYSETC_UCAN_fw
+cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-none-eabi-gcc.cmake -G Ninja
+cmake --build . --target FYSETC_UCAN_fw
 ```
 
-Output firmware: `build/FYSETC_UCAN_fw.bin` (exact path may vary with your CMake target name).
+**Windows:** install [CMake](https://cmake.org/), [Ninja](https://ninja-build.org/), and [GNU Arm Embedded Toolchain](https://developer.arm.com/downloads/-/gnu-arm-embedded-toolchain) (e.g. via `winget install Kitware.CMake Ninja-build.Ninja Arm.GnuArmEmbeddedToolchain`), then:
+
+```powershell
+cd candleLight_fw
+cmake -B build "-DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/arm-none-eabi-gcc.cmake" -DCMAKE_BUILD_TYPE=Release -G Ninja
+cmake --build build --target FYSETC_UCAN_fw
+```
+
+Output firmware: `build/FYSETC_UCAN_fw.bin`.
 
 Requires `arm-none-eabi-gcc` with **newlib** — see the [main README](../README.md).
 

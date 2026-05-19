@@ -1,0 +1,182 @@
+From 46150c17bf44f42f1133e607d07a33b7b73afcf6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Eric=20Kr=C3=A4mer?= <eric.kraemer@pikes.de>
+Date: Tue, 19 May 2026 07:31:07 +0200
+Subject: [PATCH] usbd_gs_can: recover USB/CAN state after host disconnect
+
+Release a stuck to_host_buf on suspend, resume, and USB deinit. Add an SOF watchdog when the host stops SOFs without USB suspend. Document in docs/PIKES-PATCH.md.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+---
+ docs/PIKES-PATCH.md   | 35 +++++++++++++++++++++++++
+ include/usbd_gs_can.h |  1 +
+ src/main.c            |  1 +
+ src/usbd_gs_can.c     | 60 ++++++++++++++++++++++++++++++++++++++++++-
+ 4 files changed, 96 insertions(+), 1 deletion(-)
+ create mode 100644 docs/PIKES-PATCH.md
+
+diff --git a/docs/PIKES-PATCH.md b/docs/PIKES-PATCH.md
+new file mode 100644
+index 0000000..b3c64ea
+--- /dev/null
++++ b/docs/PIKES-PATCH.md
+@@ -0,0 +1,35 @@
++# Pikes: Host-Reboot / USB-Zustand (FYSETC UCAN)
++
++Patch für [candleLight_fw issue #46](https://github.com/candle-usb/candleLight_fw/issues/46): Adapter hängt nach Host- oder Container-Reboot ohne Power-Cycle (z. B. Proxmox USB-Passthrough).
++
++## Branch
++
++`fix/usb-host-reboot-state`
++
++## Änderungen
++
++1. **`to_host_buf` zurücksetzen** bei USB-Suspend, Resume und DeInit (Bus-Reset) – Ersatz für das frühere `TxState = 0` aus [PR #94](https://github.com/candle-usb/candleLight_fw/pull/94).
++2. **SOF-Watchdog** (200 ms ohne USB Start-of-Frame): CAN wird abgeschaltet, wenn der Host verschwindet **ohne** USB-Suspend (typisch bei Reboot ohne Stecker ziehen).
++
++## Bauen
++
++```bash
++mkdir -p build && cd build
++cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-none-eabi-gcc.cmake
++make FYSETC_UCAN_fw
++```
++
++Firmware: `build/FYSETC_UCAN_fw.bin` (exakter Pfad je nach CMake-Target).
++
++## Flashen (DFU)
++
++Siehe [README.md](../README.md) – Fail-Safe-Methode mit BOOT-Pins oder `make flash-FYSETC_UCAN_fw`.
++
++## Test
++
++- Host oder LXC rebooten (ohne `ip link set can0 down`).
++- Nach Boot: `ip link set can0 up type can bitrate <rate>` und CAN-Traffic prüfen.
++
++## Upstream
++
++Geplanter Pull Request gegen `candle-usb/candleLight_fw`. Bis zum Merge: Builds aus diesem Fork/Branch verwenden.
+diff --git a/include/usbd_gs_can.h b/include/usbd_gs_can.h
+index 76ac477..e8f7606 100644
+--- a/include/usbd_gs_can.h
++++ b/include/usbd_gs_can.h
+@@ -131,6 +131,7 @@ typedef struct {
+ uint8_t USBD_GS_CAN_Init(USBD_GS_CAN_HandleTypeDef *hcan, USBD_HandleTypeDef *pdev);
+ void USBD_GS_CAN_SuspendCallback(USBD_HandleTypeDef  *pdev);
+ void USBD_GS_CAN_ResumeCallback(USBD_HandleTypeDef  *pdev);
++void USBD_GS_CAN_CheckHostPresence(USBD_HandleTypeDef *pdev);
+ void USBD_GS_CAN_ReceiveFromHost(USBD_HandleTypeDef *pdev);
+ void USBD_GS_CAN_SendToHost(USBD_HandleTypeDef *pdev);
+ bool USBD_GS_CAN_CustomDeviceRequest(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *req);
+diff --git a/src/main.c b/src/main.c
+index a7fedd5..e9a28cf 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -109,6 +109,7 @@ int main(void)
+ 			CAN_SendFrame(&hGS_CAN, channel);
+ 		}
+ 
++		USBD_GS_CAN_CheckHostPresence(&hUSB);
+ 		USBD_GS_CAN_ReceiveFromHost(&hUSB);
+ 		USBD_GS_CAN_SendToHost(&hUSB);
+ 
+diff --git a/src/usbd_gs_can.c b/src/usbd_gs_can.c
+index 2d31363..aab380c 100644
+--- a/src/usbd_gs_can.c
++++ b/src/usbd_gs_can.c
+@@ -46,6 +46,20 @@ THE SOFTWARE.
+ #include "util.h"
+ 
+ static volatile bool is_usb_suspend_cb = false;
++static volatile bool sof_seen;
++
++/* Drop a stuck IN transfer buffer (replaces legacy TxState reset on resume). */
++static void USBD_GS_CAN_ReleaseToHostBuf(USBD_GS_CAN_HandleTypeDef *hcan)
++{
++	bool was_irq_enabled = disable_irq();
++
++	if (hcan->to_host_buf) {
++		list_add_tail(&hcan->to_host_buf->list, &hcan->list_frame_pool);
++		hcan->to_host_buf = NULL;
++	}
++
++	restore_irq(was_irq_enabled);
++}
+ 
+ /* Configuration Descriptor */
+ static const uint8_t USBD_GS_CAN_CfgDesc[USB_CAN_CONFIG_DESC_SIZ] =
+@@ -254,8 +268,16 @@ static uint8_t USBD_GS_CAN_Start(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
+ 
+ static uint8_t USBD_GS_CAN_DeInit(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
+ {
++	USBD_GS_CAN_HandleTypeDef *hcan = pdev->pClassData;
++
+ 	UNUSED(cfgidx);
+ 
++	if (hcan)
++		USBD_GS_CAN_ReleaseToHostBuf(hcan);
++
++	sof_seen = false;
++	is_usb_suspend_cb = false;
++
+ 	USBD_LL_CloseEP(pdev, GSUSB_ENDPOINT_IN);
+ 	USBD_LL_CloseEP(pdev, GSUSB_ENDPOINT_OUT);
+ 
+@@ -729,6 +751,8 @@ out_prepare_receive:
+ static uint8_t USBD_GS_CAN_SOF(struct _USBD_HandleTypeDef *pdev)
+ {
+ 	USBD_GS_CAN_HandleTypeDef *hcan = (USBD_GS_CAN_HandleTypeDef*) pdev->pClassData;
++
++	sof_seen = true;
+ 	hcan->sof_timestamp_us = timer_get();
+ 	return USBD_OK;
+ }
+@@ -940,11 +964,45 @@ void USBD_GS_CAN_SuspendCallback(USBD_HandleTypeDef  *pdev)
+ 		led_set_mode(&channel->leds, LED_MODE_OFF);
+ 	}
+ 
++	USBD_GS_CAN_ReleaseToHostBuf(hcan);
+ 	is_usb_suspend_cb = true;
+ }
+ 
+ void USBD_GS_CAN_ResumeCallback(USBD_HandleTypeDef  *pdev)
+ {
+-	(void)pdev;
++	USBD_GS_CAN_HandleTypeDef *hcan = pdev->pClassData;
++
++	USBD_GS_CAN_ReleaseToHostBuf(hcan);
+ 	is_usb_suspend_cb = false;
+ }
++
++#define USB_SOF_WATCHDOG_TIMEOUT_US 200000U
++
++void USBD_GS_CAN_CheckHostPresence(USBD_HandleTypeDef *pdev)
++{
++	USBD_GS_CAN_HandleTypeDef *hcan = pdev->pClassData;
++	uint32_t now;
++	uint32_t elapsed;
++
++	if (is_usb_suspend_cb || pdev->dev_state != USBD_STATE_CONFIGURED || !sof_seen)
++		return;
++
++	now = timer_get();
++	elapsed = now - hcan->sof_timestamp_us;
++	if (elapsed < USB_SOF_WATCHDOG_TIMEOUT_US)
++		return;
++
++	sof_seen = false;
++
++	for (unsigned int i = 0; i < ARRAY_SIZE(hcan->channels); i++) {
++		can_data_t *channel = &hcan->channels[i];
++
++		if (!can_is_enabled(channel))
++			continue;
++
++		can_disable(channel);
++		led_set_mode(&channel->leds, LED_MODE_OFF);
++	}
++
++	USBD_GS_CAN_ReleaseToHostBuf(hcan);
++}
+-- 
+2.50.0.windows.1
+

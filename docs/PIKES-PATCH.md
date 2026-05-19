@@ -30,21 +30,21 @@ Siehe [README.md](../README.md) – Fail-Safe-Methode mit BOOT-Pins oder `make f
 - Host oder LXC rebooten (ohne `ip link set can0 down`).
 - Nach Boot: `ip link set can0 up type can bitrate <rate>` und CAN-Traffic prüfen.
 
-## Fork auf GitHub (Pikes)
+## Fork auf GitHub ([Pikes-GmbH](https://github.com/Pikes-GmbH))
 
-1. Auf GitHub einloggen (Org/User mit Schreibrechten, z. B. `pikes`).
-2. [candle-usb/candleLight_fw](https://github.com/candle-usb/candleLight_fw) → **Fork** → Organisation `pikes` wählen.
+1. Als Org-Mitglied einloggen (Account mit Rechten auf `Pikes-GmbH`, z. B. `EKR-Pikes`).
+2. [candle-usb/candleLight_fw](https://github.com/candle-usb/candleLight_fw) → **Fork** → Owner **Pikes-GmbH** wählen.
 3. Lokal pushen:
 
 ```bash
-git remote add pikes git@github.com:pikes/candleLight_fw.git
+git remote add pikes https://github.com/Pikes-GmbH/candleLight_fw.git
 git push -u pikes fix/usb-host-reboot-state
 ```
 
 Kollegen: Branch klonen oder `git fetch` + `git checkout fix/usb-host-reboot-state`.
 
-Alternativ nur den Patch anwenden: `git am patches/0001-*.patch` (siehe Ordner `patches/` im Repo nach Export).
+Alternativ nur den Patch anwenden: `git am patches/0001-*.patch` (Ordner `patches/`).
 
 ## Upstream
 
-Geplanter Pull Request von `pikes/candleLight_fw:fix/usb-host-reboot-state` nach `candle-usb/candleLight_fw`.
+Geplanter Pull Request von `Pikes-GmbH/candleLight_fw:fix/usb-host-reboot-state` nach `candle-usb/candleLight_fw`.

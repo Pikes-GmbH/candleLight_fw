@@ -1,3 +1,14 @@
+> [!WARNING]
+> ## ⚠️ DEPRECATED
+> This fork is **no longer maintained** by Pikes GmbH and will not receive
+> further updates or fixes. Please use the upstream project instead:
+> **https://github.com/candle-usb/candleLight_fw**
+>
+> The repository is kept read-only for reference only.
+
+---
+
+
 # candleLight_gsusb
 [![Build](https://github.com/candle-usb/candleLight_fw/actions/workflows/ci.yml/badge.svg)](https://github.com/candle-usb/candleLight_fw/actions)
 
